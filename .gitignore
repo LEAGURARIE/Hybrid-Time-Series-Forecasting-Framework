@@ -24,7 +24,7 @@ env/
 output/
 runs/
 logs/
-data/
+
 results_summary/
 
 # Data files (too large for git)
