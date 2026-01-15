@@ -1,0 +1,72 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.spyderproject
+.spyproject
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Output directories (generated at runtime)
+output/
+runs/
+logs/
+data/
+results_summary/
+
+# Data files (too large for git)
+*.csv
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.parquet
+
+# Images and plots
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+# Model files
+*.joblib
+*.model
+*.weights
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets / API keys
+.env
+*.key
+secrets.json
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
