@@ -63,21 +63,20 @@ GoogleStockProject/
 │       └── hpo.py                # Hyperparameter optimization
 │
 ├── scripts/
-│   └── run_pipeline.py           # CLI entry point (orchestrates modules)
-│
-├── output/                       # All outputs (created at runtime)
-│   ├── data/
-│   │   ├── raw/                  # Downloaded price data
-│   │   ├── interim/              # Feature-engineered data
-│   │   └── processed/            # Train/Valid/Test splits
-│   ├── runs/                     # Experiment snapshots
-│   │   └── {RUN_ID}/
-│   │       ├── config/           # Run configuration
-│   │       ├── feature_selection/
-│   │       ├── models/           # Trained models + metrics
-│   │       ├── predictions/      # Model predictions
-│   │       └── outputs/          # Ensemble results
-│   └── results_summary/          # Leaderboards, reports
+│   ├── run_pipeline.py           # CLI entry point (orchestrates modules)
+│   └── output/                   # All outputs (created at runtime)
+│       ├── data/
+│       │   ├── raw/              # Downloaded price data
+│       │   ├── interim/          # Feature-engineered data
+│       │   └── processed/        # Train/Valid/Test splits
+│       ├── runs/                 # Experiment snapshots
+│       │   └── {RUN_ID}/
+│       │       ├── config/       # Run configuration
+│       │       ├── feature_selection/
+│       │       ├── models/       # Trained models + metrics
+│       │       ├── predictions/  # Model predictions
+│       │       └── outputs/      # Ensemble results
+│       └── results_summary/      # Leaderboards, reports
 │
 ├── notebooks/
 │   └── google_stock_ml_unified.ipynb  # Interactive Colab version (self-contained)

@@ -294,25 +294,24 @@ GoogleStockProject/
 │       └── hpo.py
 │
 ├── scripts/
-│   └── run_pipeline.py               # CLI entry point
+│   ├── run_pipeline.py               # CLI entry point
+│   └── output/                       # Generated at runtime
+│       ├── data/
+│       │   ├── raw/                  # Downloaded data
+│       │   ├── interim/              # Engineered features
+│       │   └── processed/            # Train/Valid/Test splits
+│       ├── runs/
+│       │   └── {RUN_ID}/
+│       │       ├── config/           # Run configuration snapshot
+│       │       ├── feature_selection/# Feature importance
+│       │       ├── model_selection/  # HPO results
+│       │       ├── models/           # Trained models
+│       │       ├── predictions/      # Model predictions
+│       │       └── outputs/          # Ensemble results
+│       └── results_summary/          # Accumulated results
 │
 ├── notebooks/
 │   └── google_stock_ml_unified.ipynb # Self-contained Colab version
-│
-├── output/                           # Generated at runtime
-│   ├── data/
-│   │   ├── raw/                      # Downloaded data
-│   │   ├── interim/                  # Engineered features
-│   │   └── processed/                # Train/Valid/Test splits
-│   ├── runs/
-│   │   └── {RUN_ID}/
-│   │       ├── config/               # Run configuration snapshot
-│   │       ├── feature_selection/    # Feature importance
-│   │       ├── model_selection/      # HPO results
-│   │       ├── models/               # Trained models
-│   │       ├── predictions/          # Model predictions
-│   │       └── outputs/              # Ensemble results
-│   └── results_summary/              # Accumulated results
 │
 └── requirements.txt
 ```
