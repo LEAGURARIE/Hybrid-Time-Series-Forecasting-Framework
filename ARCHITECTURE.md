@@ -15,7 +15,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
-**Author:** Lea G.
+**Author:** Lea G. with [Claude Code](https://claude.ai) (Anthropic)
 
 ---
 
@@ -132,7 +132,7 @@ Model implementations.
 | `neural_utils.py` | Training utilities for NN |
 
 ### `src/tuning/hpo.py`
-Hyperparameter optimization (3-stage Optuna).
+Hyperparameter optimization (3-stage manual sampling).
 
 | Stage | Trials | Description |
 |-------|--------|-------------|
@@ -224,8 +224,10 @@ python scripts/run_pipeline.py
 python scripts/run_pipeline.py --steps models,ensemble,summary
 
 # Specific models
-python scripts/run_pipeline.py --models xgb,lgb,lstm
+python scripts/run_pipeline.py --models xgb,lgb,lstm,gru,hybrid_seq,hybrid_par
 ```
+
+**Available models:** `xgb`, `lgb`, `lstm`, `gru`, `hybrid_seq`, `hybrid_par`
 
 **Configuration:** `src/config.py` → `CONFIG` dictionary
 
@@ -235,10 +237,10 @@ Self-contained interactive version for Google Colab.
 
 - All code is embedded in cells
 - Does NOT import from `src/` modules
-- Independent configuration via `RUN_PARAMS` (Cell 3)
+- Independent configuration via `RUN_PARAMS` in **BLOCK 0**
 - Google Drive integration for persistence
 
-**Configuration:** `RUN_PARAMS` dictionary in notebook Cell 3
+**Configuration:** `RUN_PARAMS` dictionary in **BLOCK 0** (CONFIG + HELPERS)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -246,13 +248,13 @@ Self-contained interactive version for Google Colab.
 │   CLI (run_pipeline.py)              Notebook (Colab)                       │
 │   ─────────────────────              ─────────────────                      │
 │                                                                             │
-│   src/config.py                      RUN_PARAMS (Cell 3)                    │
+│   src/config.py                      BLOCK 0 (CONFIG + HELPERS)             │
 │        │                                   │                                │
 │        ▼                                   ▼                                │
 │   ┌─────────┐                        ┌─────────────┐                       │
-│   │ CONFIG  │                        │ Embedded    │                       │
-│   └────┬────┘                        │ Code Cells  │                       │
-│        │                             └──────┬──────┘                       │
+│   │ CONFIG  │                        │ RUN_PARAMS  │                       │
+│   └────┬────┘                        └──────┬──────┘                       │
+│        │                                    │                              │
 │        ▼                                    ▼                              │
 │   src/ modules                       Self-contained                        │
 │        │                             functions                             │

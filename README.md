@@ -1,4 +1,4 @@
-# 📈 Google Stock Returns Prediction Framework
+# Google Stock Returns Prediction Framework
 
 **A Multi-Layered Research and Forecasting System for GOOGL Stock**
 
@@ -6,7 +6,7 @@ End-to-end ML pipeline for predicting daily stock log returns, combining tree-ba
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
 ### Feature Engineering
 - **Macro indicators**: CPI, Federal Funds Rate, inflation acceleration
@@ -37,7 +37,7 @@ End-to-end ML pipeline for predicting daily stock log returns, combining tree-ba
 
 ---
 
-## 🏗️ Project Structure
+## Project Structure
 
 The project follows a **modular architecture** where each component (data loading, feature engineering, models, etc.) is a separate module that can be used independently or as part of the full pipeline.
 
@@ -87,7 +87,7 @@ GoogleStockProject/
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 ```bash
@@ -108,17 +108,19 @@ python scripts/run_pipeline.py --steps models,ensemble,summary
 
 **Selected models:**
 ```bash
-python scripts/run_pipeline.py --models xgb,lgb,lstm
+python scripts/run_pipeline.py --models xgb,lgb,lstm,gru,hybrid_seq,hybrid_par
 ```
+
+**Available models:** `xgb`, `lgb`, `lstm`, `gru`, `hybrid_seq`, `hybrid_par`
 
 ### Google Colab
 Upload `notebooks/google_stock_ml_unified.ipynb` to Colab and run all cells.
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
-### 📍 Where to Configure
+### Where to Configure
 
 | Environment | Configuration Location | Notes |
 |-------------|----------------------|-------|
@@ -129,7 +131,7 @@ Upload `notebooks/google_stock_ml_unified.ipynb` to Colab and run all cells.
 
 ---
 
-### 📅 Date Configuration (Data Split)
+### Date Configuration (Data Split)
 
 The data split is controlled by the following parameters:
 
@@ -165,7 +167,7 @@ The data split is controlled by the following parameters:
      limit_start        train_end    valid_es_end    valid_score_end    end_date
 ```
 
-#### ⚠️ Important Notes
+#### Important Notes
 
 1. **Reproducibility**: Set `end_date` to a fixed date for consistent results across runs
 2. **Warmup period**: `limit_start_date` should be after `start_date` to allow rolling feature calculation
@@ -174,7 +176,7 @@ The data split is controlled by the following parameters:
 
 ---
 
-### 🔧 Other Key Settings
+### Other Key Settings
 
 #### Feature Exclusions
 
@@ -200,7 +202,7 @@ Some tickers lack reliable Volume data and should be excluded from volume-based 
 
 ---
 
-## 📊 Example Output
+## Example Output
 
 ```
 ============================================================
@@ -221,7 +223,7 @@ Bootstrap 95% CI (n=1000):
 
 ---
 
-## 🔍 SHAP Explainability
+## SHAP Explainability
 
 The framework includes SHAP analysis for model interpretation:
 
@@ -236,7 +238,7 @@ Output files:
 
 ---
 
-## 📈 Metrics
+## Metrics
 
 | Metric | Description |
 |--------|-------------|
@@ -248,7 +250,7 @@ Sample weights use exponential decay to emphasize recent observations.
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -260,29 +262,24 @@ Sample weights use exponential decay to emphasize recent observations.
 
 ---
 
-## 🤝 Contributing
+## Future Work
 
-Contributions welcome:
-
-1. **Alternative data**: Sentiment analysis, news signals
-2. **New architectures**: Transformers, Temporal Fusion Transformer
-3. **Custom loss functions**: Asymmetric loss for risk management
-4. **Backtesting framework**: Strategy simulation
+- **ML Experiment Agent**: Autonomous agent that optimizes the training process by experimenting with different hyperparameters, time periods, and model configurations across runs
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This project is for **research and educational purposes only**. It does not constitute financial advice or a recommendation to trade securities. Past performance does not guarantee future results.
 
 ---
 
-## 📄 License
+## License
 
 MIT License
 
 ---
 
-## 👩‍💻 Author
+## Author
 
-Created by **Lea G.**
+Created by **Lea G.** with [Claude Code](https://claude.ai) (Anthropic)
