@@ -11,7 +11,8 @@ from pathlib import Path
 
 from ..utils import (
     w_rmse, w_mae, directional_accuracy as dir_acc,
-    save_pickle, save_json, copy_file, ensure_dir, load_pickle
+    save_pickle, save_json, copy_file, ensure_dir, load_pickle,
+    apply_shap_feature_selection
 )
 
 
@@ -126,6 +127,18 @@ def train_final_model_lgb(
         return None
     
     HPO_CFG = config
+    
+    # -------------------------
+    # Apply SHAP feature selection if configured
+    # -------------------------
+    SHAP_CFG = config.get("shap", {})
+    X_train, X_valid, X_test, feature_source = apply_shap_feature_selection(
+        X_train, X_valid, X_test, 
+        SHAP_CFG, 
+        proc_data_local,
+        proc_data_drive
+    )
+    print(f"[INFO] Feature source: {feature_source} ({X_train.shape[1]} features)")
     
     # -------------------------
     # Prepare data

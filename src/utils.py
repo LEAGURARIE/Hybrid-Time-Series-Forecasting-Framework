@@ -746,3 +746,89 @@ def compute_model_comparison_ci(
         "wrmse_diff": make_result(wrmse_diffs, wrmse1 - wrmse2),
         "diracc_diff": make_result(diracc_diffs, diracc1 - diracc2),
     }
+
+
+# ==============================================================================
+# SHAP Feature Selection
+# ==============================================================================
+
+def apply_shap_feature_selection(X_train, X_valid, X_test, shap_config, proc_dir, fallback_proc_dir=None):
+    """
+    Apply SHAP-based feature selection if configured.
+    
+    Args:
+        X_train, X_valid, X_test: DataFrames with features
+        shap_config: dict with "top_n_features" key (None = disabled)
+        proc_dir: Path to run's processed directory
+        fallback_proc_dir: Path to project's data/processed (optional)
+    
+    Returns:
+        (X_train, X_valid, X_test, feature_source) - filtered DataFrames and source string
+    """
+    from pathlib import Path
+    
+    top_n = shap_config.get("top_n_features", None)
+    
+    if top_n is None:
+        return X_train, X_valid, X_test, "xgb_selected"
+    
+    # Try to load SHAP features
+    filename = f"shap_top_{top_n}_features.pkl"
+    paths_to_try = [Path(proc_dir) / filename]
+    
+    if fallback_proc_dir:
+        paths_to_try.append(Path(fallback_proc_dir) / filename)
+    
+    for path in paths_to_try:
+        if path.exists():
+            shap_features = load_pickle(path)
+            
+            # Validate features exist in data
+            missing = [f for f in shap_features if f not in X_train.columns]
+            if missing:
+                print(f"[WARN] SHAP features missing from data: {missing}")
+                continue
+            
+            X_train_sel = X_train[shap_features]
+            X_valid_sel = X_valid[shap_features]
+            X_test_sel = X_test[shap_features]
+            
+            print(f"[INFO] Using SHAP top {top_n} features from {path.name}")
+            return X_train_sel, X_valid_sel, X_test_sel, f"shap_top_{top_n}"
+    
+    # Not found - warn and use original
+    print(f"[WARN] {filename} not found. Run XGBoost with SHAP first.")
+    print(f"[INFO] Using original features (xgb_selected)")
+    return X_train, X_valid, X_test, "xgb_selected"
+
+
+def save_shap_top_features(shap_importance_df, top_n, save_dir, copy_to_dir=None):
+    """
+    Save top N features from SHAP importance to pickle.
+    
+    Args:
+        shap_importance_df: DataFrame with 'feature' and 'mean_abs_shap' columns
+        top_n: Number of top features to save
+        save_dir: Primary save directory
+        copy_to_dir: Optional secondary directory (e.g., Drive)
+    
+    Returns:
+        List of top N feature names
+    """
+    from pathlib import Path
+    
+    if top_n is None:
+        return None
+    
+    top_features = shap_importance_df.head(top_n)["feature"].tolist()
+    filename = f"shap_top_{top_n}_features.pkl"
+    
+    save_path = Path(save_dir) / filename
+    save_pickle(top_features, save_path)
+    print(f"[INFO] Saved {filename}: {top_features}")
+    
+    if copy_to_dir:
+        copy_path = Path(copy_to_dir) / filename
+        copy_file(save_path, copy_path)
+    
+    return top_features

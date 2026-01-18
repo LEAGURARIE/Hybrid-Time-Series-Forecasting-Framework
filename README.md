@@ -2,274 +2,318 @@
 
 **A Multi-Layered Research and Forecasting System for GOOGL Stock**
 
-End-to-end ML pipeline for predicting daily stock log returns, combining tree-based models (XGBoost, LightGBM) with Deep Learning (LSTM, GRU, Hybrid architectures), advanced ensemble methods, and statistical validation via Bootstrap confidence intervals.
+End-to-end ML pipeline for predicting daily stock log returns, combining tree-based models with Deep Learning, advanced ensemble methods, and statistical validation.
 
 ---
 
-## Key Features
+## Why This Framework?
 
-### Feature Engineering
-- **Macro indicators**: CPI, Federal Funds Rate, inflation acceleration
-- **Market sentiment**: VIX levels, VIX term structure, regime detection
-- **Fundamentals**: EPS surprise from earnings reports
-- **Cross-asset signals**: Rolling beta and correlation vs SPY, QQQ, NASDAQ
-- **EU market gaps**: Pre-market signals from DAX overnight moves (using ^GDAXI Close only)
-- **Technical features**: Rolling statistics, volume patterns, momentum
+### The Challenge
+Predicting stock returns is notoriously difficult. Single models often fail to capture the complexity of financial markets, and overfitting is a constant risk.
 
-### Feature Selection (Multi-Stage)
-1. **Spearman filter**: Remove highly correlated features (ρ > 0.9)
-2. **XGBoost importance**: GAIN-based ranking with permutation validation
-3. **Mutual Information**: For neural network feature sets
+### Our Approach
+This framework addresses these challenges through:
 
-### Models
-| Type | Models | Notes |
-|------|--------|-------|
-| Tree-based | XGBoost, LightGBM | 3-stage HPO (280 trials) |
-| Deep Learning | LSTM, GRU | Sequence-based with early stopping |
-| Hybrid | Sequential (LSTM→GRU), Parallel (LSTM∥GRU) | Combined architectures |
-| Ensemble | Weighted Average, Stacking | Inverse-wRMSE weighting |
-
-### Validation & Explainability
-- **Temporal split**: Train → Valid (ES + Score) → Test
-- **Bootstrap CI**: 95% confidence intervals (n=1000)
-- **SHAP analysis**: Global importance + Beeswarm plots
-- **Baselines**: ZERO (predict 0) and NAIVE (last value) benchmarks
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           PREDICTION PIPELINE                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌────────────┐  │
+│   │   DATA      │    │  FEATURE    │    │   MODEL     │    │  ENSEMBLE  │  │
+│   │  SOURCES    │───▶│ ENGINEERING │───▶│  TRAINING   │───▶│  & VOTING  │  │
+│   └─────────────┘    └─────────────┘    └─────────────┘    └────────────┘  │
+│         │                  │                  │                  │          │
+│         ▼                  ▼                  ▼                  ▼          │
+│   • Stock prices     • 100+ features    • 6 diverse       • Weighted      │
+│   • Macro data       • Auto-selection     models            combination   │
+│   • Earnings         • SHAP ranking     • Parallel        • Quality       │
+│   • VIX/Bonds                             training          filtering     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Project Structure
+## Key Benefits
 
-The project follows a **modular architecture** where each component (data loading, feature engineering, models, etc.) is a separate module that can be used independently or as part of the full pipeline.
+### 1. Multi-Model Diversity
+Instead of relying on a single model, the framework trains **6 different model types** that capture different patterns:
+
+| Model Type | What It Captures |
+|------------|------------------|
+| **XGBoost** | Non-linear feature interactions |
+| **LightGBM** | Fast gradient patterns |
+| **LSTM** | Long-term sequential memory |
+| **GRU** | Short-term temporal patterns |
+| **Hybrid-Seq** | Combined sequential learning |
+| **Hybrid-Par** | Parallel pattern extraction |
+
+> **Why it matters**: When one model fails, others may succeed. The ensemble combines their strengths.
+
+### 2. Intelligent Feature Selection
+
+The framework automatically identifies the most predictive features through multiple methods:
 
 ```
-GoogleStockProject/
-├── src/                          # Core modules
-│   ├── config.py                 # CLI configuration (CONFIG dict + setup_cli_paths)
-│   ├── utils.py                  # I/O, metrics, statistics
-│   ├── data/
-│   │   ├── loaders.py            # Data fetching (yfinance, FRED, etc.)
-│   │   └── split.py              # Train/Valid/Test splitting
-│   ├── features/
-│   │   ├── engineering.py        # Feature construction
-│   │   └── selection.py          # Feature selection pipeline
-│   ├── models/
-│   │   ├── xgboost_model.py      # XGBoost training + SHAP
-│   │   ├── lightgbm_model.py     # LightGBM training + SHAP
-│   │   ├── lstm_gru.py           # LSTM/GRU wrapper
-│   │   ├── neural_utils.py       # NN training utilities
-│   │   ├── hybrid.py             # Hybrid architectures
-│   │   └── ensemble.py           # Ensemble methods
-│   └── tuning/
-│       └── hpo.py                # Hyperparameter optimization
-│
-├── scripts/
-│   ├── run_pipeline.py           # CLI entry point (orchestrates modules)
-│   └── output/                   # All outputs (created at runtime)
-│       ├── data/
-│       │   ├── raw/              # Downloaded price data
-│       │   ├── interim/          # Feature-engineered data
-│       │   └── processed/        # Train/Valid/Test splits
-│       ├── runs/                 # Experiment snapshots
-│       │   └── {RUN_ID}/
-│       │       ├── config/       # Run configuration
-│       │       ├── feature_selection/
-│       │       ├── models/       # Trained models + metrics
-│       │       ├── predictions/  # Model predictions
-│       │       └── outputs/      # Ensemble results
-│       └── results_summary/      # Leaderboards, reports
-│
-├── notebooks/
-│   └── google_stock_ml_unified.ipynb  # Interactive Colab version (self-contained)
-│
-└── requirements.txt
+Raw Features (100+)
+       │
+       ▼
+┌──────────────────┐
+│ Correlation      │ ──▶ Remove redundant features
+│ Filter           │
+└──────────────────┘
+       │
+       ▼
+┌──────────────────┐
+│ XGBoost          │ ──▶ Rank by predictive power
+│ Importance       │
+└──────────────────┘
+       │
+       ▼
+┌──────────────────┐
+│ SHAP Analysis    │ ──▶ Understand WHY features matter
+│ (Optional)       │
+└──────────────────┘
+       │
+       ▼
+  Selected Features
+  (Optimized subset)
 ```
+
+> **Why it matters**: Fewer, better features = less overfitting, faster training, better generalization.
+
+### 3. Flexible Ensemble Control
+
+Choose how strictly to filter models before combining:
+
+| Mode | Use When |
+|------|----------|
+| **Flexible** (all filters off) | Exploratory analysis, maximum diversity |
+| **Rigid** (filters on) | Production, only proven performers |
+
+### 4. Full Explainability
+
+Every prediction can be explained:
+- **SHAP values**: See which features drove each prediction
+- **Feature importance**: Understand global patterns
+- **Bootstrap CI**: Know the uncertainty in your metrics
+
+---
+
+## Modular Architecture
+
+The framework is built as independent, reusable components:
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                      YOU CAN USE...                            │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐          │
+│  │   FULL      │   │  SPECIFIC   │   │  INDIVIDUAL │          │
+│  │  PIPELINE   │   │   STEPS     │   │   MODULES   │          │
+│  └─────────────┘   └─────────────┘   └─────────────┘          │
+│        │                 │                 │                   │
+│        ▼                 ▼                 ▼                   │
+│  Run everything    --steps models    Import & use              │
+│  end-to-end        --steps ensemble  any component             │
+│                                      in your code              │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Benefits of modularity:**
+- Run only what you need
+- Easy to extend with new models
+- Reuse components in other projects
+- Test components independently
+
+---
+
+## Full Configurability
+
+**Everything is configurable** - no code changes required for experimentation:
+
+| What | Where to Change | Examples |
+|------|-----------------|----------|
+| **Time periods** | `CONFIG["data"]` | Train/valid/test dates |
+| **Feature settings** | `CONFIG["features"]` | Rolling windows, assets |
+| **Model architecture** | `CONFIG["lstm"]`, etc. | Layers, dropout, epochs |
+| **Feature selection** | `CONFIG["shap"]` | Enable SHAP top-N |
+| **Ensemble behavior** | `CONFIG["ensemble"]` | Filters, weighting |
+
+### Configuration Locations
+
+```
+CLI (PyCharm/Terminal)           Notebook (Colab)
+         │                              │
+         ▼                              ▼
+   src/config.py                    Cell 3
+   CONFIG dict                   RUN_PARAMS dict
+```
+
+### Hyperparameter Flexibility
+
+All model hyperparameters can be adjusted without touching the code:
+
+| Model | Configurable Parameters |
+|-------|------------------------|
+| **XGBoost/LightGBM** | learning_rate, max_depth, regularization, early stopping |
+| **LSTM/GRU** | units, layers, dropout, batch_size, epochs, patience |
+| **Hybrid** | lstm_units, gru_units, architecture settings |
+| **HPO** | n_trials, search ranges, sampling strategies |
+| **Feature Selection** | thresholds, min_features, SHAP top_n |
+| **Ensemble** | method, weights, filter criteria (min_diracc, max_wrmse, top_n) |
+
+**Change once, apply everywhere** - modify the config dict and all relevant code uses the updated values automatically.
+
+---
+
+## Code Snapshot (Reproducibility)
+
+The notebook automatically saves a copy of itself at the start of each run:
+
+```
+EXPORT_CODE = True (Cell 3)
+         │
+         ▼
+   runs/{RUN_ID}/code_snapshot/
+         ├── google_stock_ml_unified.ipynb
+         └── snapshot_meta.json
+```
+
+**Saved to both LOCAL and Google Drive** for redundancy.
+
+This ensures every experiment can be exactly reproduced by loading the snapshot from that run.
+
+---
+
+## Rich Feature Engineering
+
+The framework automatically generates features from multiple data sources:
+
+| Category | Features | Source |
+|----------|----------|--------|
+| **Price Action** | Returns, volatility, momentum | Stock prices |
+| **Cross-Asset** | Correlations, beta vs market | SPY, QQQ, NASDAQ |
+| **Macro** | Interest rates, inflation | FRED API |
+| **Sentiment** | VIX levels, term structure | CBOE |
+| **Fundamentals** | EPS surprises | Earnings reports |
+| **Calendar** | Day of week, month effects | Date |
+| **EU Signals** | Overnight gaps from Europe | DAX |
 
 ---
 
 ## Quick Start
 
-### Installation
+### Option 1: Full Pipeline (Recommended)
 ```bash
 pip install -r requirements.txt
-```
-
-### CLI Usage
-
-**Full pipeline:**
-```bash
 python scripts/run_pipeline.py
 ```
 
-**Specific steps only:**
+### Option 2: Specific Steps
 ```bash
-python scripts/run_pipeline.py --steps models,ensemble,summary
+python scripts/run_pipeline.py --steps models,ensemble
 ```
 
-**Selected models:**
-```bash
-python scripts/run_pipeline.py --models xgb,lgb,lstm,gru,hybrid_seq,hybrid_par
-```
-
-**Available models:** `xgb`, `lgb`, `lstm`, `gru`, `hybrid_seq`, `hybrid_par`
-
-### Google Colab
-Upload `notebooks/google_stock_ml_unified.ipynb` to Colab and run all cells.
+### Option 3: Google Colab
+Upload `notebooks/google_stock_ml_unified.ipynb` and run all cells.
 
 ---
 
-## Configuration
+## What You Get
 
-### Where to Configure
+### Performance Metrics
+- **wRMSE**: Weighted prediction error
+- **Directional Accuracy**: % of correct up/down predictions
+- **Bootstrap CI**: Confidence intervals for all metrics
 
-| Environment | Configuration Location | Notes |
-|-------------|----------------------|-------|
-| **CLI** | `src/config.py` → `CONFIG` dict | Used by `run_pipeline.py` |
-| **Notebook** | Cell 3 → `RUN_PARAMS` dict | Self-contained, independent from CLI |
+### Visual Outputs
+- SHAP importance plots
+- Prediction vs actual charts
+- Model comparison tables
 
-> **Note**: CLI and Notebook configurations are completely separate. Changes in one do not affect the other.
-
----
-
-### Date Configuration (Data Split)
-
-The data split is controlled by the following parameters:
-
-```python
-"data": {
-    "start_date": "2004-09-01",      # First date to download
-    "end_date": "2026-01-15",        # Last date (None = today)
-    "limit_start_date": "2005-12-31", # First date for modeling (after warmup)
-    "train_end": "2020-12-31",       # Last date for training
-    "valid_start": "2021-01-01",     # First date for validation
-    "valid_end": "2023-12-31",       # Last date for validation
-    "test_start": "2023-01-01",      # First date for test
-    "test_end": None,                # Last date for test (None = end_date)
-}
-```
-
-**HPO validation dates** (for hyperparameter tuning):
-
-```python
-"hpo": {
-    "valid_es_start": "2021-01-01",    # Early stopping validation start
-    "valid_es_end": "2021-12-31",      # Early stopping validation end
-    "valid_score_start": "2022-01-01", # Scoring validation start
-    "valid_score_end": "2023-12-31",   # Scoring validation end
-}
-```
-
-#### Timeline Visualization
-
-```
-|-------- TRAIN --------|--- VALID_ES ---|--- VALID_SCORE ---|---- TEST ----|
-2005                   2020            2021               2022            2023→
-     limit_start        train_end    valid_es_end    valid_score_end    end_date
-```
-
-#### Important Notes
-
-1. **Reproducibility**: Set `end_date` to a fixed date for consistent results across runs
-2. **Warmup period**: `limit_start_date` should be after `start_date` to allow rolling feature calculation
-3. **No overlap**: Ensure `valid_end` ≥ `valid_start` and `test_start` > `train_end`
-4. **HPO validation**: `valid_score_end` is used for model selection during hyperparameter optimization
+### Saved Artifacts
+- Trained models (reusable)
+- Feature lists (for production)
+- Full predictions (for analysis)
 
 ---
 
-### Other Key Settings
+## Tuning Guide
 
-#### Feature Exclusions
+### For Different Data Sizes
 
-Some tickers lack reliable Volume data and should be excluded from volume-based features:
+| Situation | Recommendation |
+|-----------|----------------|
+| **Small data** (< 500 days) | Reduce model complexity, increase regularization |
+| **Large data** (> 2000 days) | Can use larger models, more features |
+| **Recent focus** | Use shorter time windows |
+| **Long-term patterns** | Use more historical data |
 
-```python
-"features": {
-    "exclude_raw_ohlc": ["^VIX", "^TNX", "^GDAXI"],  # No volume features
-}
-```
+### For Different Goals
 
-> **Note**: ^GDAXI (DAX index) is still used for EU break close flags (using Close price only), but excluded from volume feature engineering.
-
-#### EU Break Close Configuration
-
-```python
-"eu_break_close": {
-    "enabled": True,
-    "eu_ticker": "^GDAXI",
-    "apply_to": "next_us_trading_day",
-}
-```
+| Goal | Configuration Focus |
+|------|---------------------|
+| **Best accuracy** | Enable all models, use ensemble filtering |
+| **Fast iteration** | Run fewer models, shorter HPO |
+| **Explainability** | Enable SHAP, use simpler models |
+| **Production** | Rigid ensemble, proven features only |
 
 ---
 
-## Example Output
+## SHAP Feature Selection
+
+An optional but powerful feature that lets the best-performing model guide feature selection:
 
 ```
-============================================================
- RESULTS SUMMARY
-============================================================
- rank  model                      test_wrmse  test_diracc
-    1  Ensemble-weighted_average    0.020029     0.4693
-    2  XGBoost                      0.022925     0.4244
-    3  GRU                          0.023500     0.5102
-    4  Hybrid-Seq                   0.023107     0.4407
-    5  LightGBM                     0.023852     0.4431
-    6  LSTM                         0.035235     0.5539
-
-Bootstrap 95% CI (n=1000):
-  Ensemble: 0.020029 [0.018237, 0.022062]
-  XGBoost:  0.022925 [0.020658, 0.025923]
+                    Run 1                              Run 2
+                      │                                  │
+                      ▼                                  ▼
+              ┌──────────────┐                  ┌──────────────┐
+              │   XGBoost    │                  │  All Models  │
+              │   trains     │                  │    use       │
+              │   + SHAP     │                  │  SHAP top N  │
+              └──────────────┘                  └──────────────┘
+                      │                                  │
+                      ▼                                  ▼
+              Saves top N                        Focused on
+              features                           proven features
 ```
 
----
-
-## SHAP Explainability
-
-The framework includes SHAP analysis for model interpretation:
-
-- **Global Importance**: Ranking of most influential features
-- **Beeswarm Plots**: Feature value impact on predictions
-- **Per-prediction breakdown**: Understanding individual forecasts
-
-Output files:
-- `shap_feature_importance.csv`
-- `shap_summary_bar.png`
-- `shap_summary_beeswarm.png`
+**Enable with**: `CONFIG["shap"]["top_n_features"] = 10`
 
 ---
 
-## Metrics
+## Project Structure
 
-| Metric | Description |
-|--------|-------------|
-| **wRMSE** | Weighted Root Mean Squared Error (primary metric) |
-| **wMAE** | Weighted Mean Absolute Error |
-| **DirAcc** | Directional Accuracy (% correct sign predictions) |
-
-Sample weights use exponential decay to emphasize recent observations.
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| Missing Volume data for ^GDAXI | Already excluded via `exclude_raw_ohlc` |
-| `xgb_selected` features not found | Ensure XGB feature selection ran before neural models |
-| Date alignment errors | Check that all date parameters are consistent |
-
----
-
-## Future Work
-
-- **ML Experiment Agent**: Autonomous agent that optimizes the training process by experimenting with different hyperparameters, time periods, and model configurations across runs
+```
+GoogleStockProject/
+│
+├── src/                     # Core modules (reusable)
+│   ├── config.py           # ALL SETTINGS HERE (CLI)
+│   ├── features/           # Feature engineering
+│   ├── models/             # All model implementations
+│   └── utils.py            # Shared utilities
+│
+├── scripts/
+│   ├── run_pipeline.py     # Main entry point
+│   └── output/             # Generated at runtime
+│       ├── data/           # Downloaded & processed data
+│       └── runs/{RUN_ID}/  # Experiment results
+│
+└── notebooks/
+    └── google_stock_ml_unified.ipynb  # Colab version
+                                       # Cell 3 = settings
+```
 
 ---
 
 ## Disclaimer
 
-This project is for **research and educational purposes only**. It does not constitute financial advice or a recommendation to trade securities. Past performance does not guarantee future results.
+This project is for **research and educational purposes only**. It does not constitute financial advice. Past performance does not guarantee future results.
 
 ---
 

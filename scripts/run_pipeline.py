@@ -167,12 +167,31 @@ def step_models(paths: Dict, models_to_run: List[str]):
     print_header("Step 6/7: Train Models")
     
     proc, run_proc, run_ms = paths["processed"], paths["run_proc"], paths["run_ms"]
-    hpo_cfg = CONFIG["hpo"]
+    hpo_cfg = CONFIG["hpo"].copy()
+    hpo_cfg["shap"] = CONFIG.get("shap", {})  # Include SHAP config for models
     skip = hpo_cfg["lookback"] - 1
     
-    X_train = load_with_fallback("X_train_xgb_selected.pkl", run_proc, proc, use_pandas=True)
-    X_valid = load_with_fallback("X_valid_xgb_selected.pkl", run_proc, proc, use_pandas=True)
-    X_test = load_with_fallback("X_test_xgb_selected.pkl", run_proc, proc, use_pandas=True)
+    # Check if SHAP feature selection is configured
+    shap_cfg = CONFIG.get("shap", {})
+    shap_top_n = shap_cfg.get("top_n_features", None)
+    use_shap_features = False
+    
+    if shap_top_n:
+        shap_file = proc / f"shap_top_{shap_top_n}_features.pkl"
+        if shap_file.exists():
+            use_shap_features = True
+    
+    if use_shap_features:
+        # Load FULL X matrices (SHAP features come from full set, not xgb_selected)
+        print(f"[INFO] Loading FULL X matrices for SHAP feature selection")
+        X_train = load_with_fallback("X_train.pkl", run_proc, proc, use_pandas=True)
+        X_valid = load_with_fallback("X_valid.pkl", run_proc, proc, use_pandas=True)
+        X_test = load_with_fallback("X_test.pkl", run_proc, proc, use_pandas=True)
+    else:
+        # Load xgb_selected (default)
+        X_train = load_with_fallback("X_train_xgb_selected.pkl", run_proc, proc, use_pandas=True)
+        X_valid = load_with_fallback("X_valid_xgb_selected.pkl", run_proc, proc, use_pandas=True)
+        X_test = load_with_fallback("X_test_xgb_selected.pkl", run_proc, proc, use_pandas=True)
     y_train = load_with_fallback("y_train.pkl", run_proc, proc)
     y_valid = load_with_fallback("y_valid.pkl", run_proc, proc)
     y_test = load_with_fallback("y_test.pkl", run_proc, proc)
@@ -205,7 +224,8 @@ def step_models(paths: Dict, models_to_run: List[str]):
             best_params=best_params,
             config=hpo_cfg,
             models_out_local=paths["run_models"],
-            pred_xgb_local=paths["run_dir"] / "predictions" / "xgb"
+            pred_xgb_local=paths["run_dir"] / "predictions" / "xgb",
+            proc_data_local=paths["processed"]
         )
         
         # Extract metrics from model_results
@@ -236,12 +256,10 @@ def step_models(paths: Dict, models_to_run: List[str]):
         print_header("LightGBM", "-")
         from src.models.lightgbm_model import train_final_model_lgb
         
-        lgb_hpo_cfg = CONFIG.get("lgb_hpo", CONFIG["hpo"])
-        
         try:
             best_params_lgb = load_with_fallback("best_params_lgb_reg_t1.pkl", run_ms, proc)
         except FileNotFoundError:
-            best_params_lgb = CONFIG.get("lgb_fs", CONFIG["xgb_fs"])
+            best_params_lgb = CONFIG["xgb_fs"]
         
         # train_final_model_lgb does its own validation split internally
         result_lgb = train_final_model_lgb(
@@ -255,9 +273,10 @@ def step_models(paths: Dict, models_to_run: List[str]):
             w_valid=w_valid,
             w_test=w_test,
             best_params=best_params_lgb,
-            config=lgb_hpo_cfg,
+            config=hpo_cfg,
             models_out_local=paths["run_models"],
-            pred_lgb_local=paths["run_dir"] / "predictions" / "lgb"
+            pred_lgb_local=paths["run_dir"] / "predictions" / "lgb",
+            proc_data_local=paths["processed"]
         )
         
         if result_lgb:
@@ -324,7 +343,8 @@ def step_models(paths: Dict, models_to_run: List[str]):
             model_cfg = CONFIG.get(model_type, {})
             nn_feature_sets.update(model_cfg.get("feature_sets", []))
         
-        print(f"[INFO] Feature sets requested by neural models: {sorted(nn_feature_sets)}")
+        # Note: SHAP features are added separately below if configured
+        print(f"[INFO] Feature sets from config: {sorted(nn_feature_sets)}")
         
         # Process neural feature sets (neural_40, neural_80) from MI-based selection
         neural_fs_names = [fs for fs in nn_feature_sets if fs.startswith("neural_")]
@@ -394,6 +414,48 @@ def step_models(paths: Dict, models_to_run: List[str]):
             save_pickle(scaler_xgb, paths["run_models"] / "scaler_xgb_selected.pkl")
             print(f"[OK] xgb_selected: TRAIN={X_tr_xgb.shape} | VALID={X_va_xgb.shape} | TEST={X_te_xgb.shape}")
         
+        # Check if SHAP feature selection is configured
+        shap_cfg = CONFIG.get("shap", {})
+        shap_top_n = shap_cfg.get("top_n_features", None)
+        if shap_top_n:
+            shap_features_file = f"shap_top_{shap_top_n}_features.pkl"
+            shap_path = proc / shap_features_file
+            if shap_path.exists():
+                shap_features = load_pickle(shap_path)
+                
+                # Get SHAP-selected features from full data
+                X_tr_shap = X_train[shap_features]
+                X_va_shap = X_valid.iloc[skip:][shap_features]
+                X_te_shap = X_test.iloc[skip:][shap_features]
+                
+                scaler_shap = StandardScaler()
+                X_tr_shap_scaled = pd.DataFrame(
+                    scaler_shap.fit_transform(X_tr_shap.values),
+                    index=X_tr_shap.index,
+                    columns=X_tr_shap.columns
+                )
+                X_va_shap_scaled = pd.DataFrame(
+                    scaler_shap.transform(X_va_shap.values),
+                    index=X_va_shap.index,
+                    columns=X_va_shap.columns
+                )
+                X_te_shap_scaled = pd.DataFrame(
+                    scaler_shap.transform(X_te_shap.values),
+                    index=X_te_shap.index,
+                    columns=X_te_shap.columns
+                )
+                
+                # Add SHAP features to existing feature sets
+                X_train_dict[f"shap_top_{shap_top_n}"] = X_tr_shap_scaled
+                X_valid_dict[f"shap_top_{shap_top_n}"] = X_va_shap_scaled
+                X_test_dict[f"shap_top_{shap_top_n}"] = X_te_shap_scaled
+                
+                save_pickle(scaler_shap, paths["run_models"] / f"scaler_shap_top_{shap_top_n}.pkl")
+                print(f"[INFO] Added SHAP top {shap_top_n} to neural network feature sets")
+                print(f"[OK] shap_top_{shap_top_n}: TRAIN={X_tr_shap.shape} | VALID={X_va_shap.shape} | TEST={X_te_shap.shape}")
+            else:
+                print(f"[WARN] {shap_features_file} not found - using original feature sets")
+        
         nn_results = train_lstm_gru(
             X_train_dict=X_train_dict,
             X_valid_dict=X_valid_dict,
@@ -460,7 +522,8 @@ def step_models(paths: Dict, models_to_run: List[str]):
                 model_cfg = CONFIG.get(model_type, {})
                 hybrid_feature_sets.update(model_cfg.get("feature_sets", []))
             
-            print(f"[INFO] Feature sets requested by hybrid models: {sorted(hybrid_feature_sets)}")
+            # Note: SHAP features are added separately below if configured
+            print(f"[INFO] Feature sets from config: {sorted(hybrid_feature_sets)}")
             
             # Process neural feature sets
             neural_fs_names = [fs for fs in hybrid_feature_sets if fs.startswith("neural_")]
@@ -523,6 +586,48 @@ def step_models(paths: Dict, models_to_run: List[str]):
                 X_valid_dict["xgb_selected"] = X_va_xgb_scaled
                 X_test_dict["xgb_selected"] = X_te_xgb_scaled
                 print(f"[OK] xgb_selected: TRAIN={X_tr_xgb.shape} | VALID={X_va_xgb.shape} | TEST={X_te_xgb.shape}")
+            
+            # Check if SHAP feature selection is configured (for hybrid models)
+            shap_cfg = CONFIG.get("shap", {})
+            shap_top_n = shap_cfg.get("top_n_features", None)
+            if shap_top_n:
+                shap_features_file = f"shap_top_{shap_top_n}_features.pkl"
+                shap_path = proc / shap_features_file
+                if shap_path.exists():
+                    shap_features = load_pickle(shap_path)
+                    
+                    # Get SHAP-selected features from full data
+                    X_tr_shap = X_train[shap_features]
+                    X_va_shap = X_valid.iloc[skip:][shap_features]
+                    X_te_shap = X_test.iloc[skip:][shap_features]
+                    
+                    scaler_shap = StandardScaler()
+                    X_tr_shap_scaled = pd.DataFrame(
+                        scaler_shap.fit_transform(X_tr_shap.values),
+                        index=X_tr_shap.index,
+                        columns=X_tr_shap.columns
+                    )
+                    X_va_shap_scaled = pd.DataFrame(
+                        scaler_shap.transform(X_va_shap.values),
+                        index=X_va_shap.index,
+                        columns=X_va_shap.columns
+                    )
+                    X_te_shap_scaled = pd.DataFrame(
+                        scaler_shap.transform(X_te_shap.values),
+                        index=X_te_shap.index,
+                        columns=X_te_shap.columns
+                    )
+                    
+                    # Add SHAP features to existing feature sets
+                    X_train_dict[f"shap_top_{shap_top_n}"] = X_tr_shap_scaled
+                    X_valid_dict[f"shap_top_{shap_top_n}"] = X_va_shap_scaled
+                    X_test_dict[f"shap_top_{shap_top_n}"] = X_te_shap_scaled
+                    
+                    save_pickle(scaler_shap, paths["run_models"] / f"scaler_shap_top_{shap_top_n}_hybrid.pkl")
+                    print(f"[INFO] Added SHAP top {shap_top_n} to hybrid model feature sets")
+                    print(f"[OK] shap_top_{shap_top_n}: TRAIN={X_tr_shap.shape} | VALID={X_va_shap.shape} | TEST={X_te_shap.shape}")
+                else:
+                    print(f"[WARN] {shap_features_file} not found - using original feature sets")
         
         hybrid_results = train_hybrid(
             X_train_dict=X_train_dict,

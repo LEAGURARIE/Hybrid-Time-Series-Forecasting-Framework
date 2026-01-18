@@ -44,6 +44,7 @@ Two interfaces are available:
 │   │             │    │             │    │             │                    │
 │   │ • CONFIG    │    │ • I/O       │    │ • loaders   │                    │
 │   │ • paths     │    │ • metrics   │    │ • split     │                    │
+│   │             │    │ • SHAP      │    │             │                    │
 │   └─────────────┘    └─────────────┘    └─────────────┘                    │
 │                                                                             │
 │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                    │
@@ -78,8 +79,11 @@ Shared utilities across all modules.
 |----------|-------------|
 | `save_pickle()` / `load_pickle()` | Binary serialization |
 | `save_json()` / `load_json()` | JSON serialization |
+| `load_with_fallback()` | Load from run or project directory |
 | `compute_metrics()` | wRMSE, wMAE, DirAcc calculation |
 | `bootstrap_all_metrics()` | Bootstrap confidence intervals |
+| `apply_shap_feature_selection()` | Filter to SHAP top-N features |
+| `save_shap_top_features()` | Save SHAP feature list for reuse |
 
 ### `src/data/loaders.py`
 Data fetching from external APIs.
@@ -114,7 +118,7 @@ Multi-stage feature selection.
 
 | Stage | Method |
 |-------|--------|
-| 1 | Spearman correlation filter (ρ > 0.9) |
+| 1 | Spearman correlation filter |
 | 2 | XGBoost GAIN importance |
 | 3 | Permutation importance validation |
 | 4 | Mutual Information (for neural nets) |
@@ -122,23 +126,23 @@ Multi-stage feature selection.
 ### `src/models/`
 Model implementations.
 
-| Module | Models |
-|--------|--------|
-| `xgboost_model.py` | XGBoost + SHAP |
-| `lightgbm_model.py` | LightGBM + SHAP |
-| `lstm_gru.py` | LSTM, GRU |
-| `hybrid.py` | Sequential, Parallel hybrids |
-| `ensemble.py` | Weighted average, Stacking |
-| `neural_utils.py` | Training utilities for NN |
+| Module | Models | Features |
+|--------|--------|----------|
+| `xgboost_model.py` | XGBoost | SHAP analysis, feature selection |
+| `lightgbm_model.py` | LightGBM | SHAP analysis, feature selection |
+| `lstm_gru.py` | LSTM, GRU | Multiple feature sets |
+| `hybrid.py` | Sequential, Parallel | Combined architectures |
+| `ensemble.py` | Weighted avg, Stacking | Flexible/Rigid filtering |
+| `neural_utils.py` | - | Training utilities for NN |
 
 ### `src/tuning/hpo.py`
 Hyperparameter optimization (3-stage manual sampling).
 
-| Stage | Trials | Description |
-|-------|--------|-------------|
-| 1 | 160 | Broad search |
-| 2 | 80 | Refinement around best |
-| 3 | 40 | Low learning rate variants |
+| Stage | Description |
+|-------|-------------|
+| 1 | Broad search across parameter space |
+| 2 | Refinement around best configuration |
+| 3 | Low learning rate variants |
 
 ---
 
@@ -179,30 +183,42 @@ Hyperparameter optimization (3-stage manual sampling).
 │                    ║   5. HPO (XGB/LGB)    ║  tuning/hpo.py                │
 │                    ╚═══════════╤═══════════╝                               │
 │                                │                                            │
-│   ┌────────────────────────────┼────────────────────────────┐               │
-│   │                            │                            │               │
-│   ▼                            ▼                            ▼               │
-│ ┌─────────┐              ┌──────────┐              ┌─────────────┐         │
-│ │ XGBoost │              │ LightGBM │              │   Neural    │         │
-│ │         │              │          │              │   Networks  │         │
-│ └────┬────┘              └────┬─────┘              └──────┬──────┘         │
-│      │                        │         ┌────────────────┬┴───────────┐    │
-│      │                        │         │                │            │    │
-│      │                        │         ▼                ▼            ▼    │
-│      │                        │    ┌────────┐      ┌────────┐    ┌───────┐│
-│      │                        │    │  LSTM  │      │  GRU   │    │Hybrid ││
-│      │                        │    └────┬───┘      └────┬───┘    └───┬───┘│
-│      │                        │         │               │            │    │
-│      └────────────────────────┴─────────┴───────────────┴────────────┘    │
+│                                ▼                                            │
+│        ┌───────────────────────┼───────────────────────┐                   │
+│        │                       │                       │                    │
+│        ▼                       ▼                       ▼                    │
+│   ╔═════════╗            ╔═════════╗            ╔═════════╗                │
+│   ║ XGBoost ║            ║ LightGBM║            ║ Neural  ║                │
+│   ║ + SHAP  ║            ║ + SHAP  ║            ║ Models  ║                │
+│   ╚════╤════╝            ╚════╤════╝            ╚════╤════╝                │
+│        │                       │                       │                    │
+│        │              ┌────────┴────────┐              │                    │
+│        │              │                 │              │                    │
+│        │              ▼                 ▼              │                    │
+│        │         ┌────────┐       ┌────────┐          │                    │
+│        │         │  LSTM  │       │  GRU   │          │                    │
+│        │         └───┬────┘       └───┬────┘          │                    │
+│        │             │                │               │                    │
+│        │             └───────┬────────┘               │                    │
+│        │                     │                        │                    │
+│        │              ┌──────┴──────┐                 │                    │
+│        │              ▼             ▼                 │                    │
+│        │         ┌────────┐   ┌────────┐              │                    │
+│        │         │Hybrid  │   │Hybrid  │              │                    │
+│        │         │  Seq   │   │  Par   │              │                    │
+│        │         └───┬────┘   └───┬────┘              │                    │
+│        │             │            │                   │                    │
+│        └─────────────┴────────────┴───────────────────┘                    │
 │                                │                                            │
 │                                ▼                                            │
 │                    ╔═══════════════════════╗                               │
 │                    ║   7. ENSEMBLE         ║  models/ensemble.py           │
+│                    ║   (Flexible/Rigid)    ║                               │
 │                    ╚═══════════╤═══════════╝                               │
 │                                │                                            │
 │                                ▼                                            │
 │                    ╔═══════════════════════╗                               │
-│                    ║   8. SUMMARY          ║  Bootstrap CI + Reports       │
+│                    ║   8. SUMMARY          ║  Metrics, Bootstrap CI        │
 │                    ╚═══════════════════════╝                               │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -210,62 +226,139 @@ Hyperparameter optimization (3-stage manual sampling).
 
 ---
 
-## Two Interfaces
-
-### CLI (`scripts/run_pipeline.py`)
-
-Orchestrates modules for batch/automated execution.
-
-```bash
-# Full pipeline
-python scripts/run_pipeline.py
-
-# Specific steps
-python scripts/run_pipeline.py --steps models,ensemble,summary
-
-# Specific models
-python scripts/run_pipeline.py --models xgb,lgb,lstm,gru,hybrid_seq,hybrid_par
-```
-
-**Available models:** `xgb`, `lgb`, `lstm`, `gru`, `hybrid_seq`, `hybrid_par`
-
-**Configuration:** `src/config.py` → `CONFIG` dictionary
-
-### Notebook (`notebooks/google_stock_ml_unified.ipynb`)
-
-Self-contained interactive version for Google Colab.
-
-- All code is embedded in cells
-- Does NOT import from `src/` modules
-- Independent configuration via `RUN_PARAMS` in **BLOCK 0**
-- Google Drive integration for persistence
-
-**Configuration:** `RUN_PARAMS` dictionary in **BLOCK 0** (CONFIG + HELPERS)
+## SHAP Feature Selection Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                                                                             │
-│   CLI (run_pipeline.py)              Notebook (Colab)                       │
-│   ─────────────────────              ─────────────────                      │
+│   CONFIG["shap"]["top_n_features"] = None (default)                        │
+│   └── All models use their default feature sets                            │
 │                                                                             │
-│   src/config.py                      BLOCK 0 (CONFIG + HELPERS)             │
-│        │                                   │                                │
-│        ▼                                   ▼                                │
-│   ┌─────────┐                        ┌─────────────┐                       │
-│   │ CONFIG  │                        │ RUN_PARAMS  │                       │
-│   └────┬────┘                        └──────┬──────┘                       │
-│        │                                    │                              │
-│        ▼                                    ▼                              │
-│   src/ modules                       Self-contained                        │
-│        │                             functions                             │
-│        ▼                                    ▼                              │
-│   output/runs/                       Google Drive                          │
-│                                      /runs/                                │
+│   CONFIG["shap"]["top_n_features"] = N (e.g., 10)                          │
+│   └── SHAP-based feature selection enabled                                 │
 │                                                                             │
-│   ⚠️ Configurations are INDEPENDENT - changes in one don't affect other   │
+│       ┌─────────────────────────────────────────────────────────────┐      │
+│       │                        RUN 1                                 │      │
+│       │                                                             │      │
+│       │   XGBoost trains on xgb_selected                            │      │
+│       │         │                                                   │      │
+│       │         ▼                                                   │      │
+│       │   SHAP analysis computes feature importance                 │      │
+│       │         │                                                   │      │
+│       │         ▼                                                   │      │
+│       │   Saves: data/processed/shap_top_N_features.pkl             │      │
+│       │                                                             │      │
+│       └─────────────────────────────────────────────────────────────┘      │
+│                                    │                                        │
+│                                    ▼                                        │
+│       ┌─────────────────────────────────────────────────────────────┐      │
+│       │                        RUN 2+                                │      │
+│       │                                                             │      │
+│       │   shap_top_N_features.pkl exists                            │      │
+│       │         │                                                   │      │
+│       │         ▼                                                   │      │
+│       │   XGBoost/LightGBM: Load full X, filter to SHAP features    │      │
+│       │   Neural/Hybrid: Add shap_top_N to feature_sets list        │      │
+│       │                                                             │      │
+│       │   Feature sets become:                                      │      │
+│       │   • neural_40, neural_80, shap_top_N                        │      │
+│       │                                                             │      │
+│       └─────────────────────────────────────────────────────────────┘      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Ensemble Modes
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│   FLEXIBLE MODE (all filters = None)                                       │
+│   ├── All trained models included                                          │
+│   └── Maximum diversity, exploratory use                                   │
+│                                                                             │
+│   RIGID MODE (one or more filters set)                                     │
+│   ├── min_diracc: Remove models below accuracy threshold                   │
+│   ├── max_wrmse: Remove models above error threshold                       │
+│   ├── top_n: Keep only N best models                                       │
+│   └── Production use, quality control                                      │
+│                                                                             │
+│   Filter Metrics:                                                          │
+│   ├── use_test: False (default) → Filter by VALID metrics                  │
+│   └── use_test: True → Filter by TEST metrics (analysis only)              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## CLI vs Notebook
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│        CLI (PyCharm/Terminal)              Notebook (Colab)                │
+│        ──────────────────────              ─────────────────                │
+│                │                                  │                         │
+│                ▼                                  ▼                         │
+│        ┌──────────────┐                   ┌──────────────┐                 │
+│        │ src/config.py│                   │    Cell 3    │                 │
+│        │    CONFIG    │                   │  RUN_PARAMS  │                 │
+│        └──────────────┘                   └──────────────┘                 │
+│                │                                  │                         │
+│                ▼                                  ▼                         │
+│        ┌──────────────┐                   ┌──────────────┐                 │
+│        │run_pipeline  │                   │   Notebook   │                 │
+│        │    .py       │                   │    Cells     │                 │
+│        └──────────────┘                   └──────────────┘                 │
+│                │                                  │                         │
+│                ▼                                  ▼                         │
+│        scripts/output/                    LOCAL + Google Drive             │
+│        runs/{RUN_ID}/                     /runs/{RUN_ID}/                  │
+│                                                                             │
+│   Configurations should be kept synchronized for consistent results        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Code Snapshot (Reproducibility)
+
+The notebook automatically saves a copy of itself at the start of each run for full reproducibility:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│   EXPORT_CODE = True  (Cell 3)                                             │
+│         │                                                                   │
+│         ▼                                                                   │
+│   snapshot_code() is called at run start                                   │
+│         │                                                                   │
+│         ├──────────────────────────────────────────┐                       │
+│         ▼                                          ▼                        │
+│   LOCAL: runs/{RUN_ID}/code_snapshot/     DRIVE: runs/{RUN_ID}/code_snapshot/
+│         │                                          │                        │
+│         ├── google_stock_ml_unified.ipynb          ├── google_stock_ml_unified.ipynb
+│         └── snapshot_meta.json                     └── snapshot_meta.json   │
+│                                                                             │
+│   snapshot_meta.json contains:                                             │
+│   • run_id                                                                 │
+│   • timestamp                                                              │
+│   • source_path                                                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+- Every run has its exact code preserved
+- Can reproduce any experiment by loading the snapshot
+- Both LOCAL and DRIVE have copies for redundancy
+- Metadata tracks when and where the snapshot was taken
+
+**Disable:** Set `EXPORT_CODE = False` in Cell 3 to skip snapshots.
 
 ---
 
@@ -276,7 +369,7 @@ GoogleStockProject/
 │
 ├── src/                              # Core modules (CLI)
 │   ├── config.py                     # CONFIG + setup_cli_paths()
-│   ├── utils.py                      # I/O, metrics, statistics
+│   ├── utils.py                      # I/O, metrics, SHAP utilities
 │   ├── data/
 │   │   ├── loaders.py                # Data fetching
 │   │   └── split.py                  # Train/Valid/Test split
@@ -300,12 +393,14 @@ GoogleStockProject/
 │       │   ├── raw/                  # Downloaded data
 │       │   ├── interim/              # Engineered features
 │       │   └── processed/            # Train/Valid/Test splits
+│       │       └── shap_top_N_features.pkl  # SHAP feature list
 │       ├── runs/
 │       │   └── {RUN_ID}/
-│       │       ├── config/           # Run configuration snapshot
+│       │       ├── config/           # Run configuration (run_params.json)
+│       │       ├── code_snapshot/    # Notebook copy for reproducibility
 │       │       ├── feature_selection/# Feature importance
 │       │       ├── model_selection/  # HPO results
-│       │       ├── models/           # Trained models
+│       │       ├── models/           # Trained models + SHAP
 │       │       ├── predictions/      # Model predictions
 │       │       └── outputs/          # Ensemble results
 │       └── results_summary/          # Accumulated results
@@ -334,6 +429,19 @@ Columns:
 └── sample_weight   ← Sample weights for weighted metrics
 ```
 
+### SHAP Outputs
+
+```
+models/
+├── shap_feature_importance.csv    # Feature ranking
+├── shap_summary_bar.png           # Bar plot
+├── shap_summary_beeswarm.png      # Beeswarm plot
+└── shap_values.pkl                # Raw SHAP values
+
+data/processed/
+└── shap_top_N_features.pkl        # Persistent feature list
+```
+
 ### Results Summary
 
 ```
@@ -353,7 +461,7 @@ results_summary/
 │                                                                             │
 │  For each model's TEST predictions:                                         │
 │                                                                             │
-│  1. Resample with replacement (N = 1000 times)                             │
+│  1. Resample with replacement (N times)                                    │
 │                                                                             │
 │     Original:  [y1, y2, y3, y4, y5, ...]                                   │
 │                     │                                                       │
@@ -365,15 +473,12 @@ results_summary/
 │                                                                             │
 │  2. Compute percentiles (95% CI)                                           │
 │                                                                             │
-│     CI_lower = percentile(metric_boots, 2.5%)                              │
-│     CI_upper = percentile(metric_boots, 97.5%)                             │
+│     CI_lower = percentile(metrics, 2.5%)                                   │
+│     CI_upper = percentile(metrics, 97.5%)                                  │
 │                                                                             │
 │  3. Interpretation                                                          │
 │                                                                             │
-│     Model A: wRMSE = 0.0120 [0.0113, 0.0127]                              │
-│     Model B: wRMSE = 0.0135 [0.0128, 0.0142]                              │
-│                                                                             │
-│     CIs don't overlap → Difference is statistically significant           │
+│     If CIs don't overlap → Difference is statistically significant         │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -385,32 +490,34 @@ results_summary/
 Modules support loading from run-specific or project-level directories:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                                                                 │
-│   Load file request                                             │
-│         │                                                       │
-│         ▼                                                       │
-│   ┌─────────────────────────────────┐                          │
-│   │  runs/{RUN_ID}/processed/       │  ← Try first             │
-│   │  (run-specific)                 │                          │
-│   └─────────────┬───────────────────┘                          │
-│                 │                                               │
-│           Found? ──── Yes ──→ Use it                           │
-│                 │                                               │
-│                No                                               │
-│                 │                                               │
-│                 ▼                                               │
-│   ┌─────────────────────────────────┐                          │
-│   │  data/processed/                │  ← Fallback              │
-│   │  (project-level, persistent)    │                          │
-│   └─────────────────────────────────┘                          │
-│                                                                 │
-│   Benefits:                                                     │
-│   • Run individual steps without full pipeline                  │
-│   • Share processed data between runs                           │
-│   • Persist best_params across experiments                      │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│   load_with_fallback(filename, run_dir, fallback_dir)                      │
+│                                                                             │
+│   Load file request                                                         │
+│         │                                                                   │
+│         ▼                                                                   │
+│   ┌─────────────────────────────────┐                                      │
+│   │  runs/{RUN_ID}/processed/       │  ← Try first                         │
+│   │  (run-specific)                 │                                      │
+│   └─────────────┬───────────────────┘                                      │
+│                 │                                                           │
+│           Found? ──── Yes ──→ Use it                                       │
+│                 │                                                           │
+│                No                                                           │
+│                 │                                                           │
+│                 ▼                                                           │
+│   ┌─────────────────────────────────┐                                      │
+│   │  data/processed/                │  ← Fallback                          │
+│   │  (project-level, persistent)    │                                      │
+│   └─────────────────────────────────┘                                      │
+│                                                                             │
+│   Benefits:                                                                 │
+│   • Run individual steps without full pipeline                              │
+│   • Share processed data between runs                                       │
+│   • Persist SHAP features and best_params across experiments                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -431,8 +538,7 @@ Sample weights use exponential decay to emphasize recent observations.
 
 ```
 |-------- TRAIN --------|--- VALID_ES ---|--- VALID_SCORE ---|---- TEST ----|
-2005                   2020            2021               2022            2023→
-     limit_start        train_end    valid_es_end    valid_score_end    end_date
+      limit_start        train_end    valid_es_end    valid_score_end    end_date
 
 VALID_ES    = Early stopping during training
 VALID_SCORE = Model selection during HPO

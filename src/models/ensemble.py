@@ -188,14 +188,16 @@ def load_model_metrics(
     models: Optional[List[str]] = None
 ) -> Dict[str, Dict[str, float]]:
     """
-    Load metrics from all available models.
+    Load metrics from all available models (both valid and test).
     
     Args:
         models_dir: Directory containing model outputs
         models: List of models to include, or None for all available
     
     Returns:
-        Dict mapping model name to metrics dict
+        Dict mapping model name to metrics dict with:
+            - valid_wrmse, valid_diracc (for weight calculation)
+            - test_wrmse, test_diracc (for final evaluation)
     """
     models_dir = Path(models_dir)
     
@@ -224,26 +226,151 @@ def load_model_metrics(
         
         df = pd.read_csv(file_path)
         
-        # Extract test wRMSE (different column names for different models)
+        test_wrmse = None
+        test_diracc = None
+        valid_wrmse = None
+        valid_diracc = None
+        
+        # --- Extract TEST metrics ---
         if "test_wrmse" in df.columns:
-            wrmse = df["test_wrmse"].iloc[0]
+            test_wrmse = df["test_wrmse"].iloc[0]
         elif "wRMSE" in df.columns:
-            # XGBoost format - find TEST row
+            # XGBoost/LightGBM format - find TEST row
             test_row = df[df.get("split", "") == "TEST"]
             if len(test_row) > 0:
-                wrmse = test_row["wRMSE"].iloc[0]
+                test_wrmse = test_row["wRMSE"].iloc[0]
             else:
-                wrmse = df["wRMSE"].iloc[-1]  # Last row
+                test_wrmse = df["wRMSE"].iloc[-1]  # Last row
         elif "model_test_wrmse" in df.columns:
-            wrmse = df["model_test_wrmse"].iloc[0]
-        else:
+            test_wrmse = df["model_test_wrmse"].iloc[0]
+        
+        if "test_diracc" in df.columns:
+            test_diracc = df["test_diracc"].iloc[0]
+        elif "DirAcc" in df.columns:
+            test_row = df[df.get("split", "") == "TEST"]
+            if len(test_row) > 0:
+                test_diracc = test_row["DirAcc"].iloc[0]
+            else:
+                test_diracc = df["DirAcc"].iloc[-1]
+        elif "model_test_diracc" in df.columns:
+            test_diracc = df["model_test_diracc"].iloc[0]
+        
+        # --- Extract VALID metrics ---
+        if "valid_wrmse" in df.columns:
+            valid_wrmse = df["valid_wrmse"].iloc[0]
+        elif "wRMSE" in df.columns:
+            # XGBoost/LightGBM format - find VALID row
+            valid_row = df[df.get("split", "") == "VALID"]
+            if len(valid_row) > 0:
+                valid_wrmse = valid_row["wRMSE"].iloc[0]
+        elif "model_valid_wrmse" in df.columns:
+            valid_wrmse = df["model_valid_wrmse"].iloc[0]
+        
+        if "valid_diracc" in df.columns:
+            valid_diracc = df["valid_diracc"].iloc[0]
+        elif "DirAcc" in df.columns:
+            valid_row = df[df.get("split", "") == "VALID"]
+            if len(valid_row) > 0:
+                valid_diracc = valid_row["DirAcc"].iloc[0]
+        elif "model_valid_diracc" in df.columns:
+            valid_diracc = df["model_valid_diracc"].iloc[0]
+        
+        # Fallback: if no valid metrics, use test (with warning)
+        if valid_wrmse is None and test_wrmse is not None:
+            valid_wrmse = test_wrmse
+            print(f"[WARN] {model_name}: No valid_wrmse found, using test_wrmse for weights")
+        
+        if test_wrmse is None:
             print(f"[WARN] No wRMSE found in {file_path}")
             continue
         
-        all_metrics[model_name] = {"test_wrmse": float(wrmse)}
-        print(f"[OK] Loaded {model_name} metrics: wRMSE={wrmse:.6f}")
+        all_metrics[model_name] = {
+            "valid_wrmse": float(valid_wrmse) if valid_wrmse is not None else float(test_wrmse),
+            "valid_diracc": float(valid_diracc) if valid_diracc is not None else None,
+            "test_wrmse": float(test_wrmse),
+            "test_diracc": float(test_diracc) if test_diracc is not None else None
+        }
+        
+        valid_str = f"valid_wRMSE={valid_wrmse:.6f}" if valid_wrmse else "valid_wRMSE=N/A"
+        test_str = f"test_wRMSE={test_wrmse:.6f}"
+        diracc_str = f"test_DirAcc={test_diracc:.4f}" if test_diracc is not None else "test_DirAcc=N/A"
+        print(f"[OK] Loaded {model_name}: {valid_str} | {test_str} | {diracc_str}")
     
     return all_metrics
+
+
+def filter_models_by_metrics(
+    metrics: Dict[str, Dict[str, float]],
+    filter_config: Optional[Dict] = None
+) -> Dict[str, Dict[str, float]]:
+    """
+    Filter models based on performance thresholds.
+    
+    Args:
+        metrics: Dict from load_model_metrics()
+        filter_config: Dict with optional keys:
+            - min_diracc: Minimum valid_diracc threshold (e.g., 0.52)
+            - max_wrmse: Maximum valid_wrmse threshold (e.g., 0.025)
+            - top_n: Keep only top N models by valid_wrmse
+            - use_test: If True, filter by test metrics instead of valid (default: False)
+    
+    Returns:
+        Filtered metrics dict
+    
+    Note:
+        By default, filtering uses valid metrics to avoid data leakage.
+    """
+    if filter_config is None or len(filter_config) == 0:
+        return metrics
+    
+    filtered = dict(metrics)
+    
+    min_diracc = filter_config.get("min_diracc")
+    max_wrmse = filter_config.get("max_wrmse")
+    top_n = filter_config.get("top_n")
+    use_test = filter_config.get("use_test", False)  # Default: use valid metrics
+    
+    # Choose which metrics to use
+    wrmse_key = "test_wrmse" if use_test else "valid_wrmse"
+    diracc_key = "test_diracc" if use_test else "valid_diracc"
+    metric_source = "TEST" if use_test else "VALID"
+    
+    # Filter by min_diracc
+    if min_diracc is not None:
+        before_count = len(filtered)
+        filtered = {
+            name: m for name, m in filtered.items()
+            if m.get(diracc_key) is not None and m[diracc_key] >= min_diracc
+        }
+        removed = before_count - len(filtered)
+        if removed > 0:
+            print(f"[FILTER] Removed {removed} models with {metric_source} DirAcc < {min_diracc}")
+    
+    # Filter by max_wrmse
+    if max_wrmse is not None:
+        before_count = len(filtered)
+        filtered = {
+            name: m for name, m in filtered.items()
+            if m[wrmse_key] <= max_wrmse
+        }
+        removed = before_count - len(filtered)
+        if removed > 0:
+            print(f"[FILTER] Removed {removed} models with {metric_source} wRMSE > {max_wrmse}")
+    
+    # Keep only top_n by wRMSE (lower is better)
+    if top_n is not None and len(filtered) > top_n:
+        sorted_models = sorted(filtered.items(), key=lambda x: x[1][wrmse_key])
+        kept = [name for name, _ in sorted_models[:top_n]]
+        removed_models = [name for name, _ in sorted_models[top_n:]]
+        filtered = {name: filtered[name] for name in kept}
+        print(f"[FILTER] Kept top {top_n} models by {metric_source} wRMSE, removed: {removed_models}")
+    
+    if len(filtered) == 0:
+        print("[WARN] All models filtered out! Using original metrics.")
+        return metrics
+    
+    print(f"[FILTER] Final models: {list(filtered.keys())}")
+    return filtered
 
 
 # ==============================================================================
@@ -276,10 +403,15 @@ def weighted_average(
         predictions: DataFrame with model predictions as columns
         weights: Manual weights dict, or None to compute automatically
         metrics: Model metrics for automatic weight computation
-        weight_method: How to compute weights ("inverse_wrmse", "inverse_wrmse_squared")
+        weight_method: How to compute weights (uses valid_wrmse to avoid data leakage)
+            - "inverse_wrmse": w = 1/valid_wrmse
+            - "inverse_wrmse_squared": w = 1/valid_wrmse^2
     
     Returns:
         Tuple of (weighted predictions, weights used)
+    
+    Note:
+        Weights are computed from valid_wrmse (not test) to avoid data leakage.
     """
     models = predictions.columns.tolist()
     
@@ -287,12 +419,12 @@ def weighted_average(
         # Use provided weights
         final_weights = {m: weights.get(m, 0.0) for m in models}
     elif metrics is not None:
-        # Compute weights from metrics
+        # Compute weights from VALID metrics (avoid data leakage!)
         if weight_method == "inverse_wrmse":
-            raw_weights = {m: 1.0 / (metrics[m]["test_wrmse"] + EPS) 
+            raw_weights = {m: 1.0 / (metrics[m]["valid_wrmse"] + EPS) 
                           for m in models if m in metrics}
         elif weight_method == "inverse_wrmse_squared":
-            raw_weights = {m: 1.0 / ((metrics[m]["test_wrmse"] ** 2) + EPS) 
+            raw_weights = {m: 1.0 / ((metrics[m]["valid_wrmse"] ** 2) + EPS) 
                           for m in models if m in metrics}
         else:
             raise ValueError(f"Unknown weight_method: {weight_method}")
@@ -475,6 +607,17 @@ def run_ensemble(
     
     # Load metrics for weighting
     metrics = load_model_metrics(models_dir, models)
+    
+    # Apply filtering based on config
+    filter_config = config.get("filter", {})
+    if filter_config:
+        print(f"\n[INFO] Applying model filter: {filter_config}")
+        metrics = filter_models_by_metrics(metrics, filter_config)
+        
+        # Filter predictions to only include filtered models
+        filtered_models = list(metrics.keys())
+        valid_pred = valid_pred[[m for m in valid_pred.columns if m in filtered_models]]
+        test_pred = test_pred[[m for m in test_pred.columns if m in filtered_models]]
     
     print(f"\n[INFO] Models included: {list(valid_pred.columns)}")
     

@@ -11,7 +11,8 @@ from pathlib import Path
 
 from ..utils import (
     w_rmse, w_mae, directional_accuracy as dir_acc,
-    save_pickle, save_json, copy_file, ensure_dir, load_pickle
+    save_pickle, save_json, copy_file, ensure_dir, load_pickle,
+    apply_shap_feature_selection, save_shap_top_features
 )
 
 
@@ -100,6 +101,18 @@ def train_final_model(
         Dict with model, predictions, metrics, baselines
     """
     HPO_CFG = config
+    
+    # -------------------------
+    # Apply SHAP feature selection if configured
+    # -------------------------
+    SHAP_CFG = config.get("shap", {})
+    X_train, X_valid, X_test, feature_source = apply_shap_feature_selection(
+        X_train, X_valid, X_test, 
+        SHAP_CFG, 
+        proc_data_local,
+        proc_data_drive
+    )
+    print(f"[INFO] Feature source: {feature_source} ({X_train.shape[1]} features)")
     
     # -------------------------
     # Prepare data
@@ -523,6 +536,14 @@ def train_final_model(
             
             print(f"[INFO] Top 10 features by SHAP importance:")
             print(shap_importance.head(10).to_string(index=False))
+            
+            # Save top N features for other models to use
+            SHAP_TOP_N = SHAP_CFG.get("top_n_features", None)
+            if SHAP_TOP_N:
+                save_shap_top_features(
+                    shap_importance, SHAP_TOP_N, 
+                    proc_data_local, proc_data_drive
+                )
             
             # SHAP Summary Plot (bar)
             if SHAP_BAR:
